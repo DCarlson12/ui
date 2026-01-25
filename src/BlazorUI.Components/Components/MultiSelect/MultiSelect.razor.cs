@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.JSInterop;
 using System.Linq.Expressions;
 using System.Text;
@@ -21,6 +22,7 @@ public partial class MultiSelect<TItem> : ComponentBase, IAsyncDisposable
     private DotNetObjectReference<MultiSelect<TItem>>? _dotNetRef;
     private ElementReference _searchInputRef;
     private bool _jsSetupDone = false;
+    private bool _focusDone = false;
 
     /// <summary>
     /// Gets or sets the cascaded EditContext from a parent EditForm.
@@ -248,8 +250,32 @@ public partial class MultiSelect<TItem> : ComponentBase, IAsyncDisposable
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Setup JS when popover opens
+        if (_isOpen && !_jsSetupDone)
+        {
+            _jsSetupDone = true;
+
+            try
+            {
+                _multiSelectModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/BlazorUI.Components/js/multiselect.js");
+
+                _dotNetRef = DotNetObjectReference.Create(this);
+
+                await _multiSelectModule.InvokeVoidAsync(
+                    "setupMultiSelectInput",
+                    _searchInputRef,
+                    _dotNetRef,
+                    $"{Id}-search",
+                    $"{Id}-listbox");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"MultiSelect JS setup failed: {ex.Message}");
+            }
+        }
         // Cleanup JS when popover closes
-        if (!_isOpen && _jsSetupDone)
+        else if (!_isOpen && _jsSetupDone)
         {
             await CleanupJsAsync();
         }
@@ -269,6 +295,21 @@ public partial class MultiSelect<TItem> : ComponentBase, IAsyncDisposable
             }
         }
         _jsSetupDone = false;
+        _focusDone = false;
+    }
+
+    /// <summary>
+    /// Handles the open state change of the popover.
+    /// Resets focus tracking when the popover closes.
+    /// </summary>
+    /// <param name="isOpen">Whether the popover is now open.</param>
+    private void HandleOpenChanged(bool isOpen)
+    {
+        _isOpen = isOpen;
+        if (!isOpen)
+        {
+            _focusDone = false; // Reset for next open
+        }
     }
 
     /// <summary>
@@ -309,50 +350,49 @@ public partial class MultiSelect<TItem> : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
-    /// Captures the ElementReference from InputGroupInput and sets up JS interop.
-    /// This is called when the InputGroupInput renders, ensuring the ref is valid.
+    /// Handles the popover content ready event to focus the search input.
+    /// This is called when the popover is fully positioned and visible.
     /// </summary>
-    private async void HandleInputRefAsync(ElementReference inputRef)
+    private async Task HandleContentReady()
     {
-        _searchInputRef = inputRef;
+        // Guard against multiple calls per open
+        if (_focusDone) return;
+        _focusDone = true;
 
-        // Only setup JS if popover is open and not already setup
-        if (_isOpen && !_jsSetupDone)
+        try
         {
-            _jsSetupDone = true;
-
-            try
-            {
-                // Load JS module and setup keyboard handling
-                _multiSelectModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
-                    "import", "./_content/BlazorUI.Components/js/multiselect.js");
-
-                _dotNetRef = DotNetObjectReference.Create(this);
-
-                await _multiSelectModule.InvokeVoidAsync(
-                    "setupMultiSelectInput",
-                    _searchInputRef,
-                    _dotNetRef,
-                    $"{Id}-search",
-                    $"{Id}-listbox");
-
-                // Focus search input
-                await _multiSelectModule.InvokeVoidAsync(
-                    "focusElementByIdWithPreventScroll", $"{Id}-search");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"MultiSelect JS setup failed: {ex.Message}");
-            }
+            // Small delay to let browser finish processing DOM changes
+            await Task.Delay(50);
+            await _searchInputRef.FocusAsync();
+        }
+        catch
+        {
+            // Ignore focus errors
         }
     }
 
     /// <summary>
-    /// Handles search input changes from InputGroupInput.
+    /// Handles search input changes.
     /// </summary>
-    private void HandleSearchInputChanged(string? value)
+    private void HandleSearchInput(ChangeEventArgs args)
     {
-        _searchQuery = value ?? string.Empty;
+        _searchQuery = args.Value?.ToString() ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Handles keyboard events on the search input.
+    /// </summary>
+    private void HandleSearchKeyDown(KeyboardEventArgs args)
+    {
+        switch (args.Key)
+        {
+            case "Enter":
+                HandleEnter();
+                break;
+            case "Escape":
+                HandleEscape();
+                break;
+        }
     }
 
     /// <summary>
