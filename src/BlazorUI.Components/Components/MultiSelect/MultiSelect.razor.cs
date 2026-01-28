@@ -24,6 +24,22 @@ public partial class MultiSelect<TItem> : ComponentBase, IAsyncDisposable
     private bool _jsSetupDone = false;
     private bool _focusDone = false;
 
+    // ShouldRender tracking fields
+    private IEnumerable<TItem>? _lastItems;
+    private IEnumerable<string>? _lastValues;
+    private bool _lastIsOpen;
+    private string _lastSearchQuery = string.Empty;
+    private bool _lastDisabled;
+
+    // Cached event handlers to avoid allocations on every render
+    private readonly Dictionary<string, Func<Task>> _toggleHandlerCache = new();
+    private readonly Dictionary<string, Func<Task>> _removeHandlerCache = new();
+
+    // Cached CSS class strings to avoid recomputation on every render
+    private string? _cachedTriggerCssClass;
+    private string? _lastPopoverWidth;
+    private string? _lastClass;
+
     /// <summary>
     /// Gets or sets the cascaded EditContext from a parent EditForm.
     /// </summary>
@@ -240,6 +256,12 @@ public partial class MultiSelect<TItem> : ComponentBase, IAsyncDisposable
         // Filter out null items for safety
         Items = Items?.Where(item => item != null) ?? Enumerable.Empty<TItem>();
 
+        // Clear handler caches when Items reference changes to avoid stale delegates
+        if (!ReferenceEquals(_lastItems, Items))
+        {
+            _toggleHandlerCache.Clear();
+        }
+
         // Initialize EditContext integration if available
         if (CascadedEditContext != null && ValuesExpression != null)
         {
@@ -416,6 +438,33 @@ public partial class MultiSelect<TItem> : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
+    /// Gets a cached toggle handler for the specified item to avoid delegate allocations.
+    /// </summary>
+    private Func<Task> GetToggleHandler(TItem item)
+    {
+        var key = ValueSelector(item);
+        if (!_toggleHandlerCache.TryGetValue(key, out var handler))
+        {
+            handler = () => HandleToggle(item);
+            _toggleHandlerCache[key] = handler;
+        }
+        return handler;
+    }
+
+    /// <summary>
+    /// Gets a cached remove handler for the specified value to avoid delegate allocations.
+    /// </summary>
+    private Func<Task> GetRemoveHandler(string value)
+    {
+        if (!_removeHandlerCache.TryGetValue(value, out var handler))
+        {
+            handler = () => RemoveValue(value);
+            _removeHandlerCache[value] = handler;
+        }
+        return handler;
+    }
+
+    /// <summary>
     /// Handles Select All toggle. Only affects filtered/visible items.
     /// </summary>
     private async Task HandleSelectAllToggle()
@@ -545,17 +594,51 @@ public partial class MultiSelect<TItem> : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
+    /// Determines whether the component should re-render based on tracked state changes.
+    /// This optimization reduces unnecessary render cycles.
+    /// </summary>
+    protected override bool ShouldRender()
+    {
+        var itemsChanged = !ReferenceEquals(_lastItems, Items);
+        var valuesChanged = !ReferenceEquals(_lastValues, Values);
+        var openChanged = _lastIsOpen != _isOpen;
+        var searchChanged = _lastSearchQuery != _searchQuery;
+        var disabledChanged = _lastDisabled != Disabled;
+
+        if (itemsChanged || valuesChanged || openChanged || searchChanged || disabledChanged)
+        {
+            _lastItems = Items;
+            _lastValues = Values;
+            _lastIsOpen = _isOpen;
+            _lastSearchQuery = _searchQuery;
+            _lastDisabled = Disabled;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Gets the CSS class for the multiselect container.
     /// </summary>
     private string ContainerClass => "relative";
 
     /// <summary>
     /// Gets the CSS class for the trigger button.
+    /// Uses caching to avoid recomputation on every render.
     /// </summary>
     private string TriggerCssClass
     {
         get
         {
+            // Return cached value if inputs haven't changed
+            if (_cachedTriggerCssClass != null &&
+                _lastPopoverWidth == PopoverWidth &&
+                _lastClass == Class)
+            {
+                return _cachedTriggerCssClass;
+            }
+
             var builder = new StringBuilder();
 
             // Base button styles
@@ -580,7 +663,12 @@ public partial class MultiSelect<TItem> : ComponentBase, IAsyncDisposable
                 builder.Append(Class);
             }
 
-            return builder.ToString().Trim();
+            // Cache the result
+            _cachedTriggerCssClass = builder.ToString().Trim();
+            _lastPopoverWidth = PopoverWidth;
+            _lastClass = Class;
+
+            return _cachedTriggerCssClass;
         }
     }
 

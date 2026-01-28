@@ -3,6 +3,7 @@
 @using BlazorUI.Components.Button
 @using BlazorUI.Components.Select
 @using BlazorUI.Icons.Lucide.Components
+@implements IAsyncDisposable
 @inject IJSRuntime JS
 
 @*
@@ -117,6 +118,7 @@
 @code {
     private DateTime _displayDate;
     private DateTime? _previousSelected;
+    private IJSObjectReference? _elementUtilsModule;
 
     // Keyboard navigation fields
     private DateTime? _focusedDate;
@@ -128,6 +130,15 @@
     private bool _cachedShowOutsideDays;
     private string[]? _cachedDayNames;
     private List<List<DateTime?>>? _cachedWeeks;
+
+    // ShouldRender tracking fields
+    private DateTime? _lastSelected;
+    private DateTime _lastDisplayDate;
+    private DateTime? _lastMinDate;
+    private DateTime? _lastMaxDate;
+    private bool _lastShowMonthYearDropdowns;
+    private DateTime? _lastFocusedDate;
+    private bool _lastIsKeyboardNavigating;
 
     /// <summary>
     /// The currently displayed month.
@@ -481,11 +492,28 @@
         try
         {
             var elementId = GetDayId(_focusedDate.Value);
-            await JS.InvokeVoidAsync("eval", $"document.getElementById('{elementId}')?.focus()");
+            _elementUtilsModule ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/BlazorUI.Primitives/js/primitives/element-utils.js");
+            await _elementUtilsModule.InvokeVoidAsync("focusElement", elementId);
         }
         catch
         {
             // Ignore focus errors (element may not exist yet)
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_elementUtilsModule != null)
+        {
+            try
+            {
+                await _elementUtilsModule.DisposeAsync();
+            }
+            catch
+            {
+                // Module may already be disposed
+            }
         }
     }
 
@@ -644,6 +672,36 @@
     }
 
     #endregion
+
+    /// <summary>
+    /// Determines whether the component should re-render based on tracked state changes.
+    /// This optimization reduces unnecessary render cycles.
+    /// </summary>
+    protected override bool ShouldRender()
+    {
+        var selectedChanged = _lastSelected != Selected;
+        var displayDateChanged = _lastDisplayDate != _displayDate;
+        var minDateChanged = _lastMinDate != MinDate;
+        var maxDateChanged = _lastMaxDate != MaxDate;
+        var dropdownsChanged = _lastShowMonthYearDropdowns != ShowMonthYearDropdowns;
+        var focusedDateChanged = _lastFocusedDate != _focusedDate;
+        var keyboardNavigatingChanged = _lastIsKeyboardNavigating != _isKeyboardNavigating;
+
+        if (selectedChanged || displayDateChanged || minDateChanged || maxDateChanged ||
+            dropdownsChanged || focusedDateChanged || keyboardNavigatingChanged)
+        {
+            _lastSelected = Selected;
+            _lastDisplayDate = _displayDate;
+            _lastMinDate = MinDate;
+            _lastMaxDate = MaxDate;
+            _lastShowMonthYearDropdowns = ShowMonthYearDropdowns;
+            _lastFocusedDate = _focusedDate;
+            _lastIsKeyboardNavigating = _isKeyboardNavigating;
+            return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Gets the computed CSS classes for the calendar container.

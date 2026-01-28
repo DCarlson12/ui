@@ -1,5 +1,6 @@
 using System.Text.Json;
 using BlazorUI.Components.Utilities;
+using Ganss.Xss;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
 
@@ -36,6 +37,18 @@ public partial class RichTextEditor : ComponentBase, IAsyncDisposable
     private string? _linkUrlError;
     private bool _hasExistingLink;
     private EditorRange? _savedSelection;
+
+    // === ShouldRender Tracking ===
+    private string? _lastValue;
+    private bool _lastDisabled;
+    private bool _lastReadOnly;
+    private bool _lastLinkDialogOpen;
+    private bool _formatStateChanged;
+
+    /// <summary>
+    /// HTML sanitizer for XSS prevention. Thread-safe for static usage.
+    /// </summary>
+    private static readonly HtmlSanitizer Sanitizer = new();
 
     // === Parameters - Value Binding ===
 
@@ -218,10 +231,11 @@ public partial class RichTextEditor : ComponentBase, IAsyncDisposable
                 _editorRef, _dotNetRef, _editorId, options);
             _jsInitialized = true;
 
-            // Set initial content
+            // Set initial content (sanitized to prevent XSS)
             if (!string.IsNullOrEmpty(Value))
             {
-                await _jsModule.InvokeVoidAsync("setHtml", _editorId, Value);
+                var sanitized = Sanitizer.Sanitize(Value);
+                await _jsModule.InvokeVoidAsync("setHtml", _editorId, sanitized);
                 _lastKnownValue = Value;
             }
 
@@ -355,7 +369,33 @@ public partial class RichTextEditor : ComponentBase, IAsyncDisposable
 
         _headerLevel = GetFormatString(format, "header");
 
+        // Mark format state as changed for ShouldRender optimization
+        _formatStateChanged = true;
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Determines whether the component should re-render based on tracked state changes.
+    /// This optimization reduces unnecessary render cycles from bidirectional binding.
+    /// </summary>
+    protected override bool ShouldRender()
+    {
+        var valueChanged = _lastValue != Value;
+        var disabledChanged = _lastDisabled != Disabled;
+        var readOnlyChanged = _lastReadOnly != ReadOnly;
+        var dialogChanged = _lastLinkDialogOpen != _linkDialogOpen;
+
+        if (valueChanged || disabledChanged || readOnlyChanged || dialogChanged || _formatStateChanged)
+        {
+            _lastValue = Value;
+            _lastDisabled = Disabled;
+            _lastReadOnly = ReadOnly;
+            _lastLinkDialogOpen = _linkDialogOpen;
+            _formatStateChanged = false;
+            return true;
+        }
+
+        return false;
     }
 
     private async Task HandleHeaderChangeAsync(string? value)
@@ -574,12 +614,14 @@ public partial class RichTextEditor : ComponentBase, IAsyncDisposable
 
     /// <summary>
     /// Sets the HTML content of the editor.
+    /// HTML is sanitized to prevent XSS attacks.
     /// </summary>
     public async Task SetHtmlAsync(string? html)
     {
         if (_jsModule != null && _jsInitialized)
         {
-            await _jsModule.InvokeVoidAsync("setHtml", _editorId, html ?? "");
+            var sanitized = string.IsNullOrEmpty(html) ? "" : Sanitizer.Sanitize(html);
+            await _jsModule.InvokeVoidAsync("setHtml", _editorId, sanitized);
         }
     }
 
@@ -678,7 +720,18 @@ public partial class RichTextEditor : ComponentBase, IAsyncDisposable
                 await _jsModule.InvokeVoidAsync("disposeEditor", _editorId);
                 await _jsModule.DisposeAsync();
             }
-            catch { }
+            catch (JSDisconnectedException)
+            {
+                // Expected during circuit disconnect in Blazor Server - safe to ignore
+            }
+            catch (ObjectDisposedException)
+            {
+                // Module already disposed - safe to ignore
+            }
+            catch (InvalidOperationException)
+            {
+                // JS interop not available (prerendering) - safe to ignore
+            }
         }
         _dotNetRef?.Dispose();
     }
