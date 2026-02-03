@@ -24,13 +24,14 @@ Beautiful, accessible UI components for Blazor. Inspired by [shadcn/ui](https://
 
 BlazorBlueprint brings the elegant design system of shadcn/ui to Blazor applications. Build modern, responsive interfaces with **65+ styled components** and **15 headless primitives** that work across all Blazor hosting models—Server, WebAssembly, and Hybrid.
 
-### Why BlazorBlueprint?
+### Why Blazor Blueprint UI?
+
+Blazor developers lack a modern, system-first UI library equivalent to shadcn/ui. Blazor Blueprint UI fills that gap with prebuilt components and headless primitives that integrate directly with Tailwind and shadcn themes.
 
 - **Zero Configuration** — Pre-built CSS included. No Tailwind setup, no Node.js, no build tools required.
 - **Full shadcn/ui Compatibility** — Use themes from [shadcn/ui](https://ui.shadcn.com/themes) or [tweakcn](https://tweakcn.com) directly.
 - **Accessibility First** — WCAG 2.1 AA compliant with keyboard navigation and screen reader support.
 - **Dark Mode Built-in** — Light and dark themes with CSS variables, ready out of the box.
-- **Pure Blazor** — No JavaScript dependencies. Just C# and Razor components.
 
 ## Getting Started
 
@@ -50,6 +51,20 @@ dotnet add package BlazorBlueprint.Icons.Lucide      # 1,665 icons - stroke-base
 dotnet add package BlazorBlueprint.Icons.Heroicons   # 1,288 icons - 4 variants (outline, solid, mini, micro)
 dotnet add package BlazorBlueprint.Icons.Feather     # 286 icons - minimalist, stroke-based
 ```
+
+### Using the .NET Template
+
+The fastest way to get started is with the official BlazorBlueprint template:
+
+```bash
+# Install the template
+dotnet new install BlazorBlueprint.Templates
+
+# Create a new project
+dotnet new blazorblueprint -n MyApp
+```
+
+This creates a fully configured Blazor project with BlazorBlueprint components, theming, and best practices already set up.
 
 ### Quick Start
 
