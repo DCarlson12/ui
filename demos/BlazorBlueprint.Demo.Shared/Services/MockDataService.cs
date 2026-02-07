@@ -68,6 +68,7 @@ public class MockDataService
                 Role = _roles[_random.Next(_roles.Length)],
                 Status = _statuses[_random.Next(_statuses.Length)],
                 Department = _departments[_random.Next(_departments.Length)],
+                LastPromotionDate = GeneratePromotionDate(),
                 Salary = _random.Next(40000, 150000),
                 JoinDate = DateTime.Now.AddDays(-_random.Next(1, 3650)), // Random date within last 10 years
                 IsActive = _random.Next(100) > 20 // 80% chance of being active
@@ -98,6 +99,11 @@ public class MockDataService
         var suffix = _random.Next(100) > 70 ? _random.Next(1, 999).ToString(CultureInfo.InvariantCulture) : "";
         return $"{firstName}.{lastName}{suffix}@{domain}";
     }
+
+    private DateTimeOffset? GeneratePromotionDate()
+    {
+        return DateTimeOffset.UtcNow - TimeSpan.FromDays(_random.Next(365, 730));
+    }
 }
 
 /// <summary>
@@ -112,6 +118,7 @@ public class Person
     public string Role { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string Department { get; set; } = string.Empty;
+    public DateTimeOffset? LastPromotionDate { get; set; }
     public int Salary { get; set; }
     public DateTime JoinDate { get; set; }
     public bool IsActive { get; set; }
